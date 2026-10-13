@@ -1,0 +1,8 @@
+# Default owner for all repository changes.
+* @perrybenitez
+
+# Security-sensitive implementation areas.
+/src/bridge.rs @perrybenitez
+/src/db.rs @perrybenitez
+/src/live.rs @perrybenitez
+/SECURITY.md @perrybenitez
