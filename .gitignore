@@ -1,0 +1,43 @@
+# Build artifacts
+/target
+
+# Local data - DO NOT COMMIT
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment & secrets - DO NOT COMMIT
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Testing
+/coverage
+*.profraw
+
+# Temporary files
+*.tmp
+*.bak
+*.bak2
+*.log
+
+# User data directories
+breadboard_data/
+usage_exports/
+*.csv

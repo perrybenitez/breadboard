@@ -1,0 +1,19 @@
+# Breadboard Development Preferences
+
+## User Preferences
+
+- **NO EMOJIS**: User does not like emojis in CLI output
+  - Use text-based indicators instead:
+    - [OK] instead of ✓
+    - [ERROR] instead of ✗
+    - [WARN] instead of ⚠
+    - >> instead of →
+    - [ALERT] instead of 🔔
+    - [INFO] instead of 📊/ℹ
+    - [SYNC] instead of ⟳
+
+## Code Style
+
+- Keep CLI output clean and professional
+- Use colored text for emphasis (green/red/yellow)
+- Text-only symbols and indicators
