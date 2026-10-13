@@ -4,6 +4,7 @@ use crate::db::Database;
 use anyhow::Result;
 use serde::Deserialize;
 use std::env;
+use std::time::Duration;
 
 #[derive(Debug, Deserialize)]
 struct OpenAIUsageResponse {
@@ -24,17 +25,17 @@ pub fn sync_all(db: &Database) -> Result<Vec<SyncResult>> {
 
     // Sync Claude
     log::info!("Syncing Claude API usage");
-    results.push(sync_claude(db));
+    results.push(sync_claude(db)?);
 
     // Sync OpenAI/Codex
     log::info!("Syncing OpenAI/Codex API usage");
-    results.push(sync_openai(db));
+    results.push(sync_openai(db)?);
 
     // Cursor doesn't have a public API
     results.push(SyncResult {
         service: "cursor".to_string(),
         api_usage: 0,
-        local_usage: db.get_usage("cursor").unwrap_or(0),
+        local_usage: db.get_usage("cursor")?,
         synced: false,
         error: Some("Cursor has no public API - using local tracking only".to_string()),
     });
@@ -42,83 +43,39 @@ pub fn sync_all(db: &Database) -> Result<Vec<SyncResult>> {
     Ok(results)
 }
 
-fn sync_claude(db: &Database) -> SyncResult {
-    let api_key = match env::var("ANTHROPIC_API_KEY") {
-        Ok(key) => key,
-        Err(_) => {
-            return SyncResult {
-                service: "claude".to_string(),
-                api_usage: 0,
-                local_usage: db.get_usage("claude").unwrap_or(0),
-                synced: false,
-                error: Some("ANTHROPIC_API_KEY not set".to_string()),
-            };
-        }
-    };
-
-    log::debug!("Querying Claude API for usage");
-
-    let client = reqwest::blocking::Client::new();
-    let response = client
-        .get("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", &api_key)
-        .header("anthropic-version", "2023-06-01")
-        .send();
-
-    match response {
-        Ok(resp) => {
-            if resp.status().is_success() {
-                // Note: Anthropic doesn't have a dedicated usage endpoint
-                // Usage is returned in response headers or per-request
-                // This is a placeholder for when they add it
-                log::warn!("Claude API queried but usage endpoint not available yet");
-
-                SyncResult {
-                    service: "claude".to_string(),
-                    api_usage: 0,
-                    local_usage: db.get_usage("claude").unwrap_or(0),
-                    synced: false,
-                    error: Some(
-                        "Anthropic doesn't expose usage API yet - using local tracking".to_string(),
-                    ),
-                }
-            } else {
-                SyncResult {
-                    service: "claude".to_string(),
-                    api_usage: 0,
-                    local_usage: db.get_usage("claude").unwrap_or(0),
-                    synced: false,
-                    error: Some(format!("API returned status: {}", resp.status())),
-                }
-            }
-        }
-        Err(e) => SyncResult {
-            service: "claude".to_string(),
-            api_usage: 0,
-            local_usage: db.get_usage("claude").unwrap_or(0),
-            synced: false,
-            error: Some(format!("API request failed: {}", e)),
-        },
-    }
+fn sync_claude(db: &Database) -> Result<SyncResult> {
+    Ok(SyncResult {
+        service: "claude".to_string(),
+        api_usage: 0,
+        local_usage: db.get_usage("claude")?,
+        synced: false,
+        error: Some(
+            "Anthropic does not currently expose a supported usage endpoint; using local tracking"
+                .to_string(),
+        ),
+    })
 }
 
-fn sync_openai(db: &Database) -> SyncResult {
+fn sync_openai(db: &Database) -> Result<SyncResult> {
+    let local_usage = db.get_usage("codex")?;
     let api_key = match env::var("OPENAI_API_KEY") {
         Ok(key) => key,
         Err(_) => {
-            return SyncResult {
+            return Ok(SyncResult {
                 service: "codex".to_string(),
                 api_usage: 0,
-                local_usage: db.get_usage("codex").unwrap_or(0),
+                local_usage,
                 synced: false,
                 error: Some("OPENAI_API_KEY not set".to_string()),
-            };
+            });
         }
     };
 
     log::debug!("Querying OpenAI API for usage");
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()?;
 
     // Try the usage endpoint
     let response = client
@@ -132,7 +89,6 @@ fn sync_openai(db: &Database) -> SyncResult {
                 match resp.json::<OpenAIUsageResponse>() {
                     Ok(usage_data) => {
                         let api_usage = usage_data.total_usage.unwrap_or(0);
-                        let local_usage = db.get_usage("codex").unwrap_or(0);
 
                         // If there's a discrepancy, update local tracking
                         let synced = if api_usage != local_usage {
@@ -148,38 +104,38 @@ fn sync_openai(db: &Database) -> SyncResult {
                             true
                         };
 
-                        SyncResult {
+                        Ok(SyncResult {
                             service: "codex".to_string(),
                             api_usage,
                             local_usage,
                             synced,
                             error: None,
-                        }
+                        })
                     }
-                    Err(e) => SyncResult {
+                    Err(e) => Ok(SyncResult {
                         service: "codex".to_string(),
                         api_usage: 0,
-                        local_usage: db.get_usage("codex").unwrap_or(0),
+                        local_usage,
                         synced: false,
                         error: Some(format!("Failed to parse response: {}", e)),
-                    },
+                    }),
                 }
             } else {
-                SyncResult {
+                Ok(SyncResult {
                     service: "codex".to_string(),
                     api_usage: 0,
-                    local_usage: db.get_usage("codex").unwrap_or(0),
+                    local_usage,
                     synced: false,
                     error: Some(format!("API returned status: {}", resp.status())),
-                }
+                })
             }
         }
-        Err(e) => SyncResult {
+        Err(e) => Ok(SyncResult {
             service: "codex".to_string(),
             api_usage: 0,
-            local_usage: db.get_usage("codex").unwrap_or(0),
+            local_usage,
             synced: false,
             error: Some(format!("API request failed: {}", e)),
-        },
+        }),
     }
 }

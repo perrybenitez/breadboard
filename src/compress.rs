@@ -87,11 +87,24 @@ pub fn compress_prompt(prompt: &str) -> String {
             end -= 1;
         }
 
+        let truncated_chars = prompt[end..].chars().count();
         format!(
             "{}... [truncated {} chars]",
             &prompt[..end],
-            prompt.len() - end
+            truncated_chars
         )
+    }
+}
+
+#[cfg(test)]
+mod prompt_tests {
+    use super::compress_prompt;
+
+    #[test]
+    fn truncation_counts_unicode_characters() {
+        let prompt = format!("{}é", "a".repeat(499));
+        let compressed = compress_prompt(&prompt);
+        assert!(compressed.ends_with("[truncated 1 chars]"));
     }
 }
 

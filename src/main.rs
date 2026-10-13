@@ -1097,34 +1097,40 @@ fn show_costs(db: &Database, days: Option<i32>) -> Result<()> {
     Ok(())
 }
 
-/// Validate export path to prevent directory traversal attacks
-/// Ensures the path is a simple filename with .csv extension in current directory
+/// Validate an explicit CSV export destination.
+///
+/// Users may choose an absolute or relative path; the filesystem still
+/// enforces their permissions, while this check prevents accidental writes to
+/// a directory or to a non-CSV file.
 fn validate_export_path(path: &str) -> Result<std::path::PathBuf> {
     use std::path::Path;
 
+    if path.trim().is_empty() {
+        return Err(anyhow::anyhow!(
+            "Export path must not be empty\nExample: breadboard export --output reports/usage.csv"
+        ));
+    }
+
     let path = Path::new(path);
 
-    // Ensure it's just a filename (no directory components)
-    if path.components().count() > 1 {
+    if path.exists() && path.is_dir() {
         return Err(anyhow::anyhow!(
-            "Export path must be a filename only (no directories)\n\
-            Example: breadboard export --output usage.csv"
+            "Export path points to a directory; choose a .csv file instead"
         ));
     }
 
-    // Ensure .csv extension
-    if path.extension() != Some(std::ffi::OsStr::new("csv")) {
+    let is_csv = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("csv"));
+    if !is_csv {
         return Err(anyhow::anyhow!(
             "Export file must have .csv extension\n\
-            Example: breadboard export --output usage.csv"
+            Example: breadboard export --output reports/usage.csv"
         ));
     }
 
-    // Create safe path in current directory
-    let current_dir = std::env::current_dir()?;
-    let safe_path = current_dir.join(path);
-
-    Ok(safe_path)
+    Ok(path.to_path_buf())
 }
 
 /// Sanitize CSV field to prevent formula injection attacks
@@ -1776,4 +1782,21 @@ fn command_exists(cmd: &str) -> bool {
         .output()
         .map(|o| o.status.success())
         .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_export_path;
+
+    #[test]
+    fn export_accepts_relative_and_absolute_csv_paths() {
+        assert!(validate_export_path("reports/usage.csv").is_ok());
+        assert!(validate_export_path("/tmp/usage.CSV").is_ok());
+    }
+
+    #[test]
+    fn export_rejects_empty_and_non_csv_paths() {
+        assert!(validate_export_path("").is_err());
+        assert!(validate_export_path("usage.txt").is_err());
+    }
 }
