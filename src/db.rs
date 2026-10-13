@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 use chrono::{Datelike, Timelike, Utc};
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::path::PathBuf;
@@ -892,6 +892,7 @@ impl Database {
         Ok(deleted > 0)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn send_bridge_message(
         &self,
         message_id: &str,
@@ -1341,6 +1342,8 @@ impl Database {
     }
 
     // High-value feature: Response caching
+    // Cache persistence is ready for a future cache-aware routing policy.
+    #[allow(dead_code)]
     pub fn get_cached_response(
         &self,
         prompt_hash: &str,
@@ -1354,19 +1357,20 @@ impl Database {
                 params![prompt_hash, service],
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
-            .ok();
+            .optional()?;
 
         // Increment hit count if found
         if result.is_some() {
-            let _ = self.conn.execute(
+            self.conn.execute(
                 "UPDATE cache SET hit_count = hit_count + 1 WHERE prompt_hash = ?1 AND service = ?2",
                 params![prompt_hash, service],
-            );
+            )?;
         }
 
         Ok(result)
     }
 
+    #[allow(dead_code)]
     pub fn cache_response(
         &self,
         prompt_hash: &str,
@@ -1376,6 +1380,16 @@ impl Database {
         tokens: i64,
         ttl_hours: i32,
     ) -> Result<()> {
+        if prompt_hash.is_empty() || service.is_empty() {
+            bail!("cache key and service must not be empty");
+        }
+        if tokens < 0 {
+            bail!("cached token count must not be negative");
+        }
+        if !(1..=24 * 30).contains(&ttl_hours) {
+            bail!("cache TTL must be between 1 and 720 hours");
+        }
+
         self.conn.execute(
             "INSERT INTO cache (prompt_hash, service, prompt, response, tokens, expires_at)
              VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', '+' || ?6 || ' hours'))
@@ -1389,6 +1403,7 @@ impl Database {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn cleanup_expired_cache(&self) -> Result<()> {
         self.conn
             .execute("DELETE FROM cache WHERE expires_at < CURRENT_TIMESTAMP", [])?;
@@ -1400,16 +1415,16 @@ impl Database {
             .conn
             .query_row("SELECT COUNT(*) FROM cache", [], |row| row.get(0))
             .unwrap_or(0);
-        let hits: i64 = self
-            .conn
-            .query_row("SELECT SUM(hit_count) FROM cache", [], |row| row.get(0))
-            .unwrap_or(0);
-        let saved_tokens: i64 = self
-            .conn
-            .query_row("SELECT SUM(tokens * hit_count) FROM cache", [], |row| {
-                row.get(0)
-            })
-            .unwrap_or(0);
+        let hits: i64 =
+            self.conn
+                .query_row("SELECT COALESCE(SUM(hit_count), 0) FROM cache", [], |row| {
+                    row.get(0)
+                })?;
+        let saved_tokens: i64 = self.conn.query_row(
+            "SELECT COALESCE(SUM(tokens * hit_count), 0) FROM cache",
+            [],
+            |row| row.get(0),
+        )?;
         Ok((total, hits, saved_tokens))
     }
 
@@ -1472,6 +1487,7 @@ impl Database {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn reset_budget_alerts(&self, service: &str) -> Result<()> {
         self.conn.execute(
             "UPDATE budget_alerts SET alert_50_sent = 0, alert_75_sent = 0, alert_90_sent = 0, last_reset = CURRENT_TIMESTAMP WHERE service = ?1",
@@ -1481,6 +1497,7 @@ impl Database {
     }
 
     // Medium-value feature: Service health monitoring
+    #[allow(dead_code)]
     pub fn record_health_metric(
         &self,
         service: &str,
@@ -1531,6 +1548,7 @@ impl Database {
         Ok(results)
     }
 
+    #[allow(dead_code)]
     pub fn cleanup_old_health_metrics(&self) -> Result<()> {
         self.conn.execute(
             "DELETE FROM health_metrics WHERE timestamp < datetime('now', '-7 days')",
@@ -1641,30 +1659,34 @@ impl Database {
     }
 
     pub fn get_template(&self, name: &str) -> Result<Option<Template>> {
-        let result: Result<Template, _> = self.conn.query_row(
-            "SELECT name, prompt, description, variables FROM templates WHERE name = ?1",
-            params![name],
-            |row| {
-                let vars_json: String = row.get(3)?;
-                let variables: Vec<String> = serde_json::from_str(&vars_json).unwrap_or_default();
-                Ok(Template {
-                    name: row.get(0)?,
-                    prompt: row.get(1)?,
-                    description: row.get(2)?,
-                    variables,
-                })
-            },
-        );
+        let result: Option<Template> = self
+            .conn
+            .query_row(
+                "SELECT name, prompt, description, variables FROM templates WHERE name = ?1",
+                params![name],
+                |row| {
+                    let vars_json: String = row.get(3)?;
+                    let variables: Vec<String> =
+                        serde_json::from_str(&vars_json).unwrap_or_default();
+                    Ok(Template {
+                        name: row.get(0)?,
+                        prompt: row.get(1)?,
+                        description: row.get(2)?,
+                        variables,
+                    })
+                },
+            )
+            .optional()?;
 
         // Update last_used
-        if result.is_ok() {
-            let _ = self.conn.execute(
+        if result.is_some() {
+            self.conn.execute(
                 "UPDATE templates SET last_used = CURRENT_TIMESTAMP WHERE name = ?1",
                 params![name],
-            );
+            )?;
         }
 
-        Ok(result.ok())
+        Ok(result)
     }
 
     pub fn list_templates(&self) -> Result<Vec<Template>> {
@@ -1705,6 +1727,7 @@ impl Database {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn get_alias(&self, alias: &str) -> Result<Option<String>> {
         let service: Option<String> = self
             .conn
@@ -1713,7 +1736,7 @@ impl Database {
                 params![alias],
                 |row| row.get(0),
             )
-            .ok();
+            .optional()?;
         Ok(service)
     }
 
@@ -1741,7 +1764,9 @@ fn add_bridge_column_if_missing(conn: &Connection, sql: &str) -> Result<()> {
     match conn.execute(sql, []) {
         Ok(_) => Ok(()),
         Err(rusqlite::Error::SqliteFailure(_, Some(message)))
-            if message.to_ascii_lowercase().contains("duplicate column name") =>
+            if message
+                .to_ascii_lowercase()
+                .contains("duplicate column name") =>
         {
             Ok(())
         }
@@ -1843,7 +1868,13 @@ mod tests {
         db.register_agent("receiver", "receiver", "claude", "default", None, &[])
             .unwrap();
         db.send_bridge_message(
-            "msg_retry", "sender", "receiver", None, "request", "payload", None,
+            "msg_retry",
+            "sender",
+            "receiver",
+            None,
+            "request",
+            "payload",
+            None,
         )
         .unwrap();
 
@@ -1870,13 +1901,23 @@ mod tests {
         db.register_agent("receiver", "receiver", "claude", "default", None, &[])
             .unwrap();
         db.send_bridge_message(
-            "msg_token", "sender", "receiver", None, "request", "payload", None,
+            "msg_token",
+            "sender",
+            "receiver",
+            None,
+            "request",
+            "payload",
+            None,
         )
         .unwrap();
         let claimed = db.get_bridge_inbox("receiver", false).unwrap();
         let token = claimed[0].claim_token.as_deref().unwrap();
-        assert!(!db.ack_bridge_message("receiver", "msg_token", "wrong").unwrap());
-        assert!(db.ack_bridge_message("receiver", "msg_token", token).unwrap());
+        assert!(!db
+            .ack_bridge_message("receiver", "msg_token", "wrong")
+            .unwrap());
+        assert!(db
+            .ack_bridge_message("receiver", "msg_token", token)
+            .unwrap());
     }
 
     #[test]
@@ -1926,7 +1967,13 @@ mod tests {
         db.register_agent("receiver", "receiver", "claude", "default", None, &[])
             .unwrap();
         db.send_bridge_message(
-            "msg_orphan", "sender", "receiver", None, "request", "payload", None,
+            "msg_orphan",
+            "sender",
+            "receiver",
+            None,
+            "request",
+            "payload",
+            None,
         )
         .unwrap();
         assert!(db.unregister_agent("receiver").unwrap());

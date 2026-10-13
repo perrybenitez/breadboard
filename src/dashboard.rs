@@ -2,7 +2,6 @@
 
 use crate::constants::SERVICES;
 use crate::db::Database;
-use crate::tiers::Tier;
 use anyhow::Result;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode},

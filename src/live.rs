@@ -66,16 +66,11 @@ pub fn run(
 
 trait TurnTransport {
     fn send_turn(&mut self, prompt: &str) -> Result<TurnResult>;
-    fn close(&mut self);
 }
 
 impl TurnTransport for LiveTransport {
     fn send_turn(&mut self, prompt: &str) -> Result<TurnResult> {
         LiveTransport::send_turn(self, prompt)
-    }
-
-    fn close(&mut self) {
-        LiveTransport::close(self);
     }
 }
 
@@ -470,12 +465,9 @@ impl CodexTransport {
                 }
                 continue;
             }
-            if let Some(result) = process_codex_event(
-                &event,
-                request_id,
-                &mut response_seen,
-                &mut output,
-            )? {
+            if let Some(result) =
+                process_codex_event(&event, request_id, &mut response_seen, &mut output)?
+            {
                 return Ok(result);
             }
         }
@@ -678,14 +670,10 @@ mod tests {
     #[test]
     fn codex_parser_rejects_failed_and_interrupted_turns() {
         for method in ["turn/failed", "turn/interrupted"] {
-            let error = process_codex_event(
-                &json!({"method":method}),
-                1,
-                &mut false,
-                &mut String::new(),
-            )
-            .unwrap_err()
-            .to_string();
+            let error =
+                process_codex_event(&json!({"method":method}), 1, &mut false, &mut String::new())
+                    .unwrap_err()
+                    .to_string();
             assert!(error.contains("did not complete"));
         }
     }
@@ -719,8 +707,6 @@ mod tests {
                 })
             }
         }
-
-        fn close(&mut self) {}
     }
 
     fn bridge_test_database() -> Database {
@@ -730,7 +716,13 @@ mod tests {
         db.register_agent("receiver", "receiver", "claude", "default", None, &[])
             .unwrap();
         db.send_bridge_message(
-            "msg_live", "sender", "receiver", None, "request", "do the work", None,
+            "msg_live",
+            "sender",
+            "receiver",
+            None,
+            "request",
+            "do the work",
+            None,
         )
         .unwrap();
         db

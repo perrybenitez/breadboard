@@ -1,217 +1,226 @@
 # Breadboard
 
-> **For users of Breadboard CLI** | New to Breadboard? Start with [QUICKSTART.md](QUICKSTART.md)
+Breadboard is a Rust command-line router for Claude, Codex, and Cursor. It
+classifies a prompt, selects an available provider according to the task
+ranking, applies configured model and budget rules, runs the provider CLI, and
+records local usage.
 
-Routing engine that manages token budgets across Claude, Codex, and Cursor CLI.
+Breadboard also provides:
 
-## What It Does
+- named sessions with stable, opaque session keys;
+- provider model discovery where the provider exposes it;
+- local usage, history, limits, health, cost, and CSV export commands; and
+- a local message bridge for coordinating registered agent sessions.
 
-Breadboard automatically:
-- **Classifies** your task (code generation, debugging, chat, etc.)
-- **Routes** to the most effective model for that task
-- **Enforces** budget limits to prevent subscription overages
-- **Tracks** usage across all services
+Breadboard does not provide model access itself. The provider CLIs must already
+be installed and authenticated on the machine where Breadboard runs.
 
-## Quick Start
+## Requirements
 
-### 1. Installation
+- Rust and Cargo with a current stable toolchain;
+- at least one installed provider CLI: `claude`, `codex`, or `cursor`; and
+- a working provider login for any service you intend to use.
+
+The default provider commands are `claude`, `codex`, and `cursor`. If a command
+has a different name or path, configure it with `breadboard config`.
+
+## Installation
+
+Build from source:
 
 ```bash
-# Clone and build
-git clone https://github.com/USERNAME/breadboard.git
+git clone https://github.com/perrybenitez/breadboard.git
 cd breadboard
 cargo build --release
+```
 
-# Install to PATH
-sudo cp target/release/breadboard /usr/local/bin/
+Install the release binary somewhere on your `PATH`:
 
-# Verify installation
+```bash
+install -m 755 target/release/breadboard ~/.local/bin/breadboard
 breadboard --version
 ```
 
-**Prerequisites:**
-- Rust 1.70 or higher
-- At least one AI CLI tool installed (Claude, Codex, or Cursor)
+On systems where `~/.local/bin` is not on `PATH`, add it to the shell path or
+copy the binary to another directory already on `PATH`. The repository also
+contains `install.sh`, which builds a release binary and installs it under
+`/usr/local/bin`.
 
-**Build Options:**
+The default build includes the dashboard and usage-sync features. A smaller
+build can omit optional features:
 
 ```bash
-# Full build (3.2MB) - includes dashboard and sync
-cargo build --release
-
-# Minimal build (2.4MB) - no dashboard or sync
 cargo build --release --no-default-features
-
-# Custom build - choose features
 cargo build --release --no-default-features --features dashboard
 ```
 
-Binary sizes:
-- **Original**: 8.4MB (unoptimized)
-- **Optimized full**: 3.2MB (62% smaller)
-- **Minimal**: 2.4MB (71% smaller)
+## First run
 
-Startup times:
-- **Original**: ~470ms
-- **Optimized**: ~230ms (50% faster)
-
-See [QUICKSTART.md](QUICKSTART.md) for beginner-friendly guide.
-
-### 2. Run Setup Wizard
+Run the setup wizard, then verify the provider commands and routing:
 
 ```bash
 breadboard setup
-```
-
-The wizard will:
-1. Detect which AI CLI tools you have installed
-2. Configure subscription tiers
-3. Test routing
-4. Show example commands
-
-### 3. Verify Configuration
-
-```bash
-# Check system health
 breadboard doctor
-
-# Test routing without executing
 breadboard --dry-run "write a hello world function"
-
-# Run your first prompt
-breadboard "explain how async/await works in JavaScript"
+breadboard "explain how async/await works"
 ```
 
-## Detailed Setup
-
-### API Keys (Optional - for sync command)
-
-If you want to use `breadboard sync` to verify usage with service APIs:
+Routing requires a configured subscription tier for a provider. Configure only
+the providers you want Breadboard to consider:
 
 ```bash
-# Copy the example file
-cp .env.example .env
-
-# Edit with your actual API keys
-nano .env
-```
-
-The `.env` file should contain:
-```bash
-ANTHROPIC_API_KEY=sk-ant-api03-your-actual-key-here
-OPENAI_API_KEY=sk-your-actual-key-here
-```
-
-**Note**: This is only needed for the `sync` command. Regular routing works without API keys.
-
-### Option 1: Subscription Tier-Based (Recommended)
-
-Configure your subscription tiers - breadboard will automatically set limits and track usage across multiple time windows:
-
-```bash
-# Set your subscription tiers
 breadboard set-tier claude claude-pro
-breadboard set-tier cursor cursor-business
 breadboard set-tier codex codex-payg
+breadboard set-tier cursor cursor-business
+```
 
-# View limits (shows tier defaults and observed limits)
+Supported tier identifiers are:
+
+- Claude: `claude-free`, `claude-pro`, `claude-team`, `claude-enterprise`;
+- Codex: `codex-free`, `codex-payg`, `codex-scale`; and
+- Cursor: `cursor-free`, `cursor-pro`, `cursor-business`.
+
+Tier values are Breadboard's configured tracking limits. They are not a live
+replacement for provider billing or account status. If you know a monthly
+token cap that should be enforced locally, set it explicitly:
+
+```bash
+breadboard set-budget claude 2000000
+breadboard set-budget codex 1500000
+breadboard set-budget cursor 2500000
+```
+
+Inspect current usage and limits with:
+
+```bash
+breadboard status
 breadboard limits
 ```
 
-**Supported tiers:**
-- Claude: `claude-free`, `claude-pro`, `claude-team`, `claude-enterprise`
-- Cursor: `cursor-free`, `cursor-pro`, `cursor-business`
-- Codex: `codex-free`, `codex-payg`, `codex-scale`
+## Routing and model selection
 
-Breadboard automatically enforces limits across multiple time windows:
-- **Per-minute** rate limits
-- **Hourly** quotas
-- **Daily** caps
-- **Monthly** budgets
+For a normal prompt, Breadboard classifies the text into one of these task
+types: code generation, refactoring, code review, debugging, documentation,
+testing, explanation, or general chat. It tries providers in a task-specific
+effectiveness order and skips providers that are unavailable or over budget.
 
-### Option 2: Manual Token Budgets
+The current default order is:
 
-Alternatively, set monthly token budgets directly:
+| Task type | Provider order |
+| --- | --- |
+| Code generation | Cursor, Codex, Claude |
+| Refactoring | Cursor, Claude, Codex |
+| Code review | Claude, Cursor, Codex |
+| Debugging | Cursor, Claude, Codex |
+| Documentation | Claude, Cursor, Codex |
+| Testing | Cursor, Codex, Claude |
+| Explanation | Claude, Cursor, Codex |
+| General chat | Claude, Cursor, Codex |
 
-```bash
-breadboard set-budget claude 2000000    # 2M tokens/month
-breadboard set-budget codex 1500000     # 1.5M tokens/month
-breadboard set-budget cursor 2500000    # 2.5M tokens/month
-```
-
-### Configure Commands (Optional)
-
-```bash
-breadboard config
-```
-
-This lets you specify the actual CLI commands for each service if they differ from defaults.
-
-### Model Selection
-
-Breadboard selects a service based on task type, then applies the configured model for that
-service. Use `--model` for a one-off override:
+The classifier is keyword-based. Use `--dry-run` to inspect the selected task,
+provider, model, and budget information without invoking a provider:
 
 ```bash
-breadboard --model opus "refactor this authentication code"
+breadboard --dry-run "review this function for security issues"
 ```
 
-Configure default and task-specific models in `~/.config/breadboard/config.yaml`:
+### One-off model override
+
+`--model` overrides the configured model for the provider selected for that
+prompt:
+
+```bash
+breadboard --model sonnet "explain this error"
+```
+
+Model identifiers are passed to the provider CLI. Breadboard does not validate
+that an identifier exists before execution.
+
+### Task-specific model configuration
+
+The configuration file is YAML. A service-level `default` applies when there
+is no task-specific entry; a task-specific entry takes precedence:
 
 ```yaml
+claude_command: claude
+codex_command: codex
+cursor_command: cursor
+compress_history: true
+
 models:
   claude:
     default: sonnet
-    code_generation: opus
+    code_review: opus
     chat: haiku
   codex:
-    default: gpt-5-codex
-    debugging: gpt-5-codex
+    default: codex-model-id
+    debugging: codex-debug-model-id
   cursor:
-    default: default
+    default: cursor-model-id
+    code_generation: cursor-code-model-id
 ```
 
-Model IDs are passed to the selected CLI as `--model <id>`.
+Replace the example IDs with values accepted by the installed provider. Model
+keys are `code_generation`, `code_refactoring`, `code_review`, `debugging`,
+`documentation`, `testing`, `chat`, and `explanation`.
 
-To inspect the model catalogs exposed by the installed providers, run:
+### Discovering available models
+
+Use the provider's local discovery surface before choosing an ID:
 
 ```bash
-breadboard models             # Inspect Claude, Codex, and Cursor
-breadboard models codex       # Inspect one provider
+breadboard models
+breadboard models claude
+breadboard models codex
 breadboard models cursor
 ```
 
-Codex is queried through its local app-server `model/list` endpoint and Cursor
-through its `models` command. Claude's CLI does not expose a non-interactive
-account-specific catalog, so Breadboard reports its model-option support and
-leaves the final ID choice to the provider's model picker. Discovery is
-read-only; it never changes your model configuration.
+Codex is queried through its local app-server model list. Cursor is queried
+through its `models` command. The Claude CLI is checked for model-option
+support, but it does not expose an account-specific non-interactive catalog;
+its model picker remains authoritative. Discovery is read-only and does not
+change configuration.
 
-### Session Resumption
+## Sessions and resume behavior
 
-Use a named session to keep a stable Breadboard session key across invocations:
+Use a named session when related prompts should share a Breadboard identity:
 
 ```bash
-breadboard --session work "start the refactor"
-breadboard --session work "continue the refactor"
+breadboard --session refactor "start the refactor"
+breadboard --session refactor "continue the refactor"
 breadboard session list
+```
+
+The session key is derived as an opaque SHA-256 value from the provider, model,
+project root, and session name. Prompt text is not included. The key is printed
+when a session starts and closes, and `session list` displays it:
+
+```text
+Session key: bb_<opaque-value>
+Resume with: breadboard --session refactor "your prompt"
+```
+
+The session name is limited to 64 ASCII letters, numbers, `-`, `_`, and `.`.
+`--new-session` refuses to overwrite an existing matching session; choose a new
+name or delete the old record:
+
+```bash
+breadboard --session refactor --new-session "start over"
 breadboard session delete <session-key>
 ```
 
-The key is an opaque SHA-256 value scoped to the provider, model, project root, and
-session name; the prompt text is not included in it. Breadboard prints the key when
-the run starts and closes. `--new-session` requires a new session name; `--dry-run`
-previews a key without persisting a session. Provider resume IDs are stored separately
-and are only used when that provider exposes compatible resume behavior.
+Breadboard stores provider-specific resume identifiers separately from its
+stable key. Provider continuation is therefore provider-dependent. Named
+sessions are persisted unless the command is a dry run; `--dry-run` previews
+the routing and key without executing or persisting the session.
 
-This protects the session identifier, but normal history still stores prompt text
-(optionally compressed). Session-key hashing does not provide prompt-history privacy;
-that would require a separate history-storage mode.
+The hash protects the session identifier from exposing prompt content. It does
+not encrypt or remove the prompt history stored locally.
 
-### Agent Communication
+## Agent bridge
 
-Breadboard includes a local, persistent message bridge for explicit agent-to-agent
-coordination. Agents must be registered before they can send or receive messages:
+The bridge is a persistent, local queue for explicit messages between
+registered agents. Register agents before sending messages:
 
 ```bash
 breadboard bridge agent register planner \
@@ -219,401 +228,272 @@ breadboard bridge agent register planner \
 breadboard bridge agent register reviewer \
   --provider claude --model sonnet --capability code-review
 breadboard bridge agent list
-breadboard bridge send --from planner --to reviewer \
-  --task refactor-42 "Review the proposed authentication changes"
+breadboard bridge status
+```
+
+Send, receive, acknowledge, and keep an agent online:
+
+```bash
+breadboard bridge send \
+  --from planner --to reviewer --task refactor-42 \
+  "Review the proposed authentication changes"
+
 breadboard bridge inbox reviewer
 breadboard bridge ack reviewer <message-id> --claim-token <claim-token>
 breadboard bridge agent heartbeat reviewer
 ```
 
-Messages are targeted, queued in Breadboard's user-only SQLite database, and remain
-pending until acknowledged. Inbox reads atomically claim messages for five minutes and
-return a claim token; acknowledgement is scoped to the receiving agent. Expired claims
-are retried, while expired messages remain inspectable as terminal records. Payloads are
-limited to 64 KiB, and agent leases go offline after fifteen minutes without a heartbeat.
-When a named Breadboard session resumes, its pending bridge messages are automatically
-included in the next provider prompt and acknowledged only after successful execution.
-Delivery is at-least-once: if a provider completes and the process crashes before
-acknowledgment, the message may be delivered again, so receivers should make work
-idempotent. Agent discovery does not expose session keys. Bridge payloads are treated as
-external task context, but they are still visible to the provider as prompt text.
-The current transport is local-only and trusted through the operating system; do not
-expose the MCP stdio bridge remotely without adding authenticated agent credentials.
+Bridge messages are targeted and stored in the local database. The important
+delivery rules are:
 
-For a persistent turn-boundary session, run a supported live provider directly:
+- payloads are limited to 64 KiB;
+- message TTLs are bounded to 30 days;
+- an inbox read atomically claims pending messages for five minutes;
+- a claim must be acknowledged by the recipient with its exact claim token;
+- expired claims become retryable, while expired messages remain inspectable;
+- agents are considered offline after 15 minutes without a heartbeat; and
+- unregistering an agent makes its pending messages undeliverable.
+
+Delivery is at-least-once. A provider can complete work and the process can
+fail before acknowledgment, so a message may be delivered again. Bridge
+handlers should be idempotent and should not treat a message ID as proof that
+the work has never run.
+
+The bridge also exposes a local MCP-compatible stdio server:
 
 ```bash
-breadboard bridge run --provider codex --session worker --model <model-id>
-breadboard bridge run --provider claude --session reviewer --model <model-id>
+breadboard bridge mcp
 ```
 
-The command keeps the provider process alive, accepts prompts from stdin, and checks the
-bridge mailbox between turns. Codex uses its app-server protocol and Claude uses its
-streaming JSON protocol. Cursor intentionally remains queued-only until it exposes a
-supported bidirectional session transport; `bridge run --provider cursor` rejects rather
-than attempting terminal keystroke injection.
+The server provides registration, agent discovery, message send/receive,
+claim-token acknowledgment, heartbeat, and status tools. It reads JSON-RPC
+messages from standard input and writes responses to standard output.
 
-### History Compression (Enabled by Default)
+## Live sessions and turn boundaries
 
-Breadboard automatically compresses prompts and outputs before storing them in the database:
+For a provider process that remains open between prompts, use a live session:
 
-- **Long prompts** (>500 chars) are truncated with indicator
-- **Token counts** remain accurate (measured before compression)
-- **Database size** reduced by ~70-90% for large prompts
+```bash
+breadboard bridge run \
+  --provider codex --session worker --model <codex-model-id>
 
-Configuration in `~/.config/breadboard/config.yaml`:
+breadboard bridge run \
+  --provider claude --session reviewer --model <claude-model-id>
+```
+
+Enter one prompt per input line. Press `Ctrl-D` to close the session. Bridge
+messages are polled while the process is idle and are injected only at the
+boundary before the next provider turn. Breadboard waits for the provider turn
+to complete before acknowledging the claimed messages.
+
+Claude live sessions use its streaming JSON interface. Codex live sessions use
+its app-server JSON-RPC interface. Cursor does not currently have a supported
+bidirectional live transport, so `bridge run --provider cursor` rejects rather
+than attempting terminal input injection. Cursor can still participate in the
+queued bridge workflow through normal named sessions.
+
+If a live provider turn fails, its claimed bridge messages are not
+acknowledged. They can be retried after the claim lease expires. Usage is
+recorded before acknowledgment, so an acknowledgment failure favors duplicate
+delivery over losing usage accounting.
+
+## Configuration and local data
+
+The interactive configuration command writes the provider commands and default
+model IDs:
+
+```bash
+breadboard config
+```
+
+The paths are selected by the host operating system's standard configuration
+and local-data directories. `breadboard doctor` prints the resolved paths. The
+files are normally:
+
+- configuration: `<config-directory>/breadboard/config.yaml`;
+- database: `<local-data-directory>/breadboard/usage.db`.
+
+On Unix-like systems, the database is created with owner-only read/write
+permissions. The database contains usage, routing history, and session/bridge
+records. It is not encrypted.
+
+History compression is enabled by default:
+
 ```yaml
-compress_history: true  # default
+compress_history: true
 ```
 
-To disable compression:
-```yaml
-compress_history: false
-```
+When enabled, stored prompts longer than 500 characters are truncated for
+history, while token accounting uses the original invocation. Set
+`compress_history: false` when full prompt history is required. Provider output
+is displayed for the current invocation but is not stored in the routing
+history record.
 
-This feature reduces storage without affecting token tracking accuracy.
+### Optional usage synchronization
 
-## Usage
+The default build includes `breadboard sync`, which attempts to reconcile local
+usage with provider usage APIs when the relevant credentials are available.
+Provider API coverage varies; normal CLI routing does not require these
+credentials. If the feature is omitted at build time, the `sync` command is not
+available.
 
-### Basic routing
+## Useful commands
 
 ```bash
-# Just pass your prompt - breadboard routes automatically
-breadboard "write a function to parse JSON"
-breadboard "debug this error in my code"
-breadboard "explain how React hooks work"
-```
-
-### Check status
-
-```bash
+# Routing and diagnostics
+breadboard --help
+breadboard --verbose "debug this error"
+breadboard doctor
 breadboard status
-```
-
-Shows usage and budget for each service with visual progress bars.
-
-### View limits
-
-```bash
 breadboard limits
-```
 
-Shows all rate limits (per-minute, hourly, daily, monthly) with observed vs tier-based limits.
-
-### View history
-
-```bash
+# History and analysis
 breadboard history --limit 20
-```
+breadboard stats
+breadboard costs --days 30
+breadboard health --hours 24
+breadboard export --output usage.csv
 
-### Reset usage
-
-```bash
-# Reset specific service
+# Usage maintenance
 breadboard reset --service claude
-
-# Reset all
 breadboard reset
-```
 
-### Sync with APIs
-
-```bash
+# Optional features in the default build
+breadboard dashboard
 breadboard sync
 ```
 
-Queries actual usage from service APIs and compares with local tracking:
-- **Claude**: Anthropic API (placeholder - not available yet)
-- **Codex**: OpenAI usage API
-- **Cursor**: No public API - local tracking only
-
-Displays discrepancies between API-reported usage and local counts.
-
-**Note**: Requires `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` environment variables.
-
-### Interactive Dashboard
-
-```bash
-breadboard dashboard
-```
-
-Launches a real-time TUI dashboard with:
-- Color-coded usage gauges
-- Service percentages
-- Recent routing history
-- Keyboard shortcuts (q=quit, r=refresh)
-
-### Statistics & Analytics
-
-```bash
-breadboard stats
-```
-
-Shows comprehensive analytics:
-- **Service distribution**: Which services you use most
-- **Task type distribution**: Breakdown of task types
-- **Success rates**: Track command success/failure rates
-- **Cache performance**: Tokens and costs saved from caching
-
-### Cost Analysis
-
-```bash
-# All-time costs
-breadboard costs
-
-# Last 30 days
-breadboard costs --days 30
-```
-
-Displays:
-- Per-service costs in USD
-- Total spending
-- Cache savings
-- Cost distribution percentages
-
-### Export Data
-
-```bash
-# Export to default file
-breadboard export
-
-# Export to custom file
-breadboard export --output my_usage.csv
-```
-
-Exports all usage data to CSV for analysis in Excel, Google Sheets, or other tools.
-
-### Service Health
-
-```bash
-breadboard health              # Last 24 hours
-breadboard health --hours 168  # Last week
-```
-
-Monitor service performance:
-- Average response times
-- Success rates
-- Recent failures
-
-### Configuration Profiles
+Additional commands manage profiles, prompt templates, and service aliases:
 
 ```bash
 breadboard profile create work
 breadboard profile save work
-breadboard profile list
 breadboard profile switch work
-```
-
-Manage multiple configurations (work/personal/per-client).
-
-### Prompt Templates
-
-```bash
-# Save template with variables
 breadboard template save review "Review this {{language}} code: {{code}}"
-
-# Use template
-breadboard template use review language=python code="def foo(): pass"
-
-# List templates
-breadboard template list
+breadboard template use review language=rust code="fn main() {}"
+breadboard alias set review claude
 ```
 
-Reusable prompts with variable substitution.
+Run `breadboard <command> --help` for command-specific options.
 
-### Service Aliases
+## Security and trust model
 
-```bash
-breadboard alias set gpt4 codex
-breadboard alias set sonnet claude
-breadboard alias list
-```
+Breadboard is designed for local use by trusted processes under the same user
+account. The bridge does not authenticate an agent's claimed identity, and the
+MCP stdio endpoint has no network authentication. Do not expose it through a
+remote or shared transport without adding an authentication and authorization
+layer.
 
-Custom names for services.
+Bridge payloads are external task context, but they are inserted into provider
+prompts. A message can contain instructions that influence the receiving
+provider. Treat bridge senders and payloads as untrusted input at the prompt
+level, even though the transport itself is local.
 
-## How Routing Works
+Breadboard executes configured provider commands without a shell. It rejects
+configured command strings containing shell metacharacters and validates model
+identifiers before invoking a provider. Still configure only binaries you
+trust. Prompt history, exported CSV files, and provider output may contain
+sensitive source code or credentials; protect or delete them as appropriate.
 
-**Priority: Effectiveness → Budget**
-
-1. **Task Classification**: Keywords in your prompt determine task type
-2. **Effectiveness Ranking**: Each task type has a preferred model order
-3. **Budget Check**: Routes to most effective model with available budget
-4. **Fallback**: If primary is over budget, tries next best option
-
-### Task Type Rankings
-
-- **Code Generation**: cursor → codex → claude
-- **Code Refactoring**: cursor → claude → codex
-- **Code Review**: claude → cursor → codex
-- **Debugging**: cursor → claude → codex
-- **Documentation**: claude → cursor → codex
-- **Testing**: cursor → codex → claude
-- **Chat/Explanation**: claude → cursor → codex
-
-## Dynamic Limit Detection
-
-Breadboard **self-calibrates** based on actual API responses:
-
-1. **Tier Defaults**: Starts with known limits for your subscription tier
-2. **API Observation**: Parses rate limit info from CLI tool outputs
-3. **Auto-Update**: Stores observed limits and uses them for future routing
-4. **Variance Detection**: Warns if observed limits differ from tier expectations
-
-This means breadboard adapts to:
-- API limit changes
-- Tier upgrades/downgrades
-- Service-specific variations
-
-View observed vs expected limits anytime:
-```bash
-breadboard limits
-```
-
-## Token Tracking
-
-Breadboard parses **actual token usage** from CLI tool outputs instead of estimating.
-
-**Supported formats:**
-- `tokens: 1234` or `tokens_used: 1234`
-- `input_tokens: 500, output_tokens: 734`
-- JSON: `{"usage": {"total_tokens": 1234}}`
-- Natural: `Used 1234 tokens`
-- Claude format: `input=500 output=734`
-
-**How it works:**
-1. Runs your CLI command (claude, codex, cursor)
-2. Parses stdout/stderr for token usage patterns
-3. Falls back to character estimation if no match
-4. Tracks usage across all time windows
-
-## Integration with rtk
-
-Breadboard works great with [rtk](https://github.com/anthropics/rtk):
-
-```bash
-# rtk reduces token usage in command outputs
-# breadboard manages cumulative budget across services
-
-breadboard "show me the error logs" | rtk summary
-```
-
-## Examples
-
-```bash
-# Code generation → routes to Cursor
-breadboard "create a REST API with Express"
-
-# Explanation → routes to Claude
-breadboard "explain the differences between async/await and promises"
-
-# Debugging → routes to Cursor
-breadboard "fix the memory leak in this component"
-
-# When over budget, automatically falls back
-# Cursor at 95% → routes to Codex instead
-```
+For security reports, follow [SECURITY.md](SECURITY.md) rather than opening a
+public issue with sensitive details.
 
 ## Troubleshooting
 
-### Command Not Found
+### A provider command is not found
 
-If you get "Command 'claude' not found" or similar:
+Check the resolved configuration and provider commands:
 
 ```bash
-# Check system health
 breadboard doctor
-
-# Install the missing CLI tool or configure a different service
-breadboard set-tier <service> none
+breadboard config
 ```
 
-### All Services Over Budget
+Install the missing provider CLI, make sure it is on `PATH`, or set its full
+trusted path in the configuration.
+
+### Routing says no tier is configured
+
+Set a supported tier for the provider:
 
 ```bash
-# Check current usage
+breadboard set-tier claude claude-pro
+```
+
+Then inspect the result with `breadboard limits`.
+
+### All providers are unavailable or over budget
+
+Inspect usage and limits, then change the local policy deliberately:
+
+```bash
 breadboard status
-
-# Reset usage if needed
-breadboard reset
-
-# Or increase budgets
-breadboard set-budget <service> <tokens>
+breadboard limits
+breadboard set-budget codex 2000000
 ```
 
-### Something Not Working?
+`breadboard reset` resets local usage counters; it does not change provider
+account usage or billing state.
+
+### A model ID fails
+
+Run model discovery for the selected provider and use an ID accepted by that
+provider:
 
 ```bash
-# Run health check
+breadboard models <service>
+breadboard --model <model-id> "your prompt"
+```
+
+For Claude, use the provider's own model picker when the non-interactive
+catalog is unavailable.
+
+### Bridge messages appear more than once
+
+This is expected after a provider or process failure because delivery is
+at-least-once. Make the receiving operation idempotent and acknowledge only
+after the work has completed successfully. A claim token expires with its
+five-minute lease; receive the message again to obtain a new token.
+
+### A live session does not start
+
+Run the provider directly to verify its login and command path, then check:
+
+```bash
 breadboard doctor
-
-# View detailed logs
-breadboard --verbose "your prompt"
+breadboard --verbose "test prompt"
 ```
 
-For more help, see:
-- [SETUP.md](SETUP.md) - Complete setup guide
-- [QUICKSTART.md](QUICKSTART.md) - Beginner guide
-- [GitHub Issues](https://github.com/USERNAME/breadboard/issues) - Report bugs
+Live sessions currently support Claude and Codex only. Cursor is intentionally
+queued-only.
 
-## Security & Privacy
+## Testing and development
 
-### Data Storage
-
-Breadboard stores all data locally on your machine:
-- **Database**: `~/Library/Application Support/breadboard/usage.db` (macOS)
-- **Permissions**: User-only access (0600 - secure)
-- **Contents**: Your prompts (compressed), token usage, routing decisions, timestamps
-
-⚠️ **Privacy Notice**: Your prompts may contain sensitive information (code, credentials, data). The database is:
-- Stored locally only
-- Not sent to external servers (except to configured AI services when you execute prompts)
-- Secured with user-only file permissions
-
-### Security Features
-
-✅ **No unsafe code** - All Rust code is memory-safe
-✅ **Command validation** - Shell injection protected
-✅ **SQL parameterization** - SQL injection prevented
-✅ **CSV sanitization** - Formula injection prevented
-✅ **Path validation** - Directory traversal prevented
-✅ **No hardcoded secrets** - All credentials via environment
-
-### API Key Management
-
-Store API keys securely:
-```bash
-# 1. Copy example file
-cp .env.example .env
-
-# 2. Edit with your keys
-nano .env
-
-# 3. Never commit .env to git (already in .gitignore)
-```
-
-### Clearing Data
+Run the test suite with both the default and minimal feature sets:
 
 ```bash
-# Reset usage counters (keeps history)
-breadboard reset
-
-# Clear specific service
-breadboard reset --service claude
-
-# Delete all data
-rm ~/Library/Application\ Support/breadboard/usage.db
+cargo test --all-features
+cargo test --no-default-features
+cargo build --all-features
 ```
 
-### Security Issues
+The tests cover task classification, command and model validation, token
+parsing, session identity, database persistence, bridge claims and leases,
+live Claude/Codex event parsing, turn-boundary delivery, and the MCP stdio
+contract. Real provider process smoke tests require locally installed and
+authenticated provider CLIs and are not part of the default suite.
 
-For security vulnerabilities, please **do not** open a public issue.
+For changes:
 
-Instead, see our [Security Policy](SECURITY.md) for responsible disclosure.
+1. Keep behavior and security assumptions documented alongside the code.
+2. Add or update focused unit tests for parsing, routing, persistence, and
+   bridge state transitions.
+3. Add integration coverage when changing CLI arguments or provider protocols.
+4. Run both feature configurations before submitting a change.
+5. Keep secrets, local databases, exports, and build artifacts out of commits.
 
-## Files
-
-- Config: `~/.config/breadboard/config.yaml`
-- Database: `~/Library/Application Support/breadboard/usage.db`
+The main implementation is under `src/`. See [DOCUMENTATION.md](DOCUMENTATION.md)
+for the documentation map and [TESTS.md](TESTS.md) for the current test scope.
 
 ## License
 

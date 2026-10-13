@@ -347,10 +347,10 @@ fn collect_model_info(value: &Value, models: &mut Vec<ModelInfo>) {
                 .map(str::to_string);
 
             if let Some(id) = id {
-                if object.contains_key("slug") || name.is_some() {
-                    if !models.iter().any(|model| model.id == id) {
-                        models.push(ModelInfo { id, name });
-                    }
+                if (object.contains_key("slug") || name.is_some())
+                    && !models.iter().any(|model| model.id == id)
+                {
+                    models.push(ModelInfo { id, name });
                 }
             }
 

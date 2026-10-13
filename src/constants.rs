@@ -32,13 +32,10 @@ pub fn suggest_service(input: &str) -> Option<&'static str> {
     }
 
     // Try Levenshtein-like simple check
-    for &service in SERVICES {
-        if similar(service, &input_lower) {
-            return Some(service);
-        }
-    }
-
-    None
+    SERVICES
+        .iter()
+        .find(|&&service| similar(service, &input_lower))
+        .copied()
 }
 
 fn similar(a: &str, b: &str) -> bool {
