@@ -64,9 +64,11 @@ impl Config {
         let path = Self::config_path()?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
+            restrict_permissions(parent, 0o700)?;
         }
         let content = serde_yaml::to_string(self)?;
-        fs::write(path, content)?;
+        fs::write(&path, content)?;
+        restrict_permissions(&path, 0o600)?;
         Ok(())
     }
 
@@ -75,9 +77,25 @@ impl Config {
             dirs::config_dir().ok_or_else(|| anyhow::anyhow!("Could not find config directory"))?;
         path.push("breadboard");
         fs::create_dir_all(&path)?;
+        restrict_permissions(&path, 0o700)?;
         path.push("config.yaml");
         Ok(path)
     }
+}
+
+#[cfg(unix)]
+fn restrict_permissions(path: &std::path::Path, mode: u32) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(path)?.permissions();
+    permissions.set_mode(mode);
+    fs::set_permissions(path, permissions)?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn restrict_permissions(_path: &std::path::Path, _mode: u32) -> Result<()> {
+    Ok(())
 }
 
 pub fn interactive_config() -> Result<()> {

@@ -77,9 +77,8 @@ Breadboard stores data locally on your machine:
 If running Breadboard on a shared system:
 
 - ✅ Database has user-only permissions (0600)
-- ⚠️ Config files are readable by all users (0644 by design)
-- ⚠️ Don't store sensitive configs on shared systems
-- ⚠️ CSV exports are created with default permissions
+- ✅ Configuration directories and files are restricted to the current user (0700/0600 on Unix)
+- ✅ CSV exports are created with user-only permissions (0600 on Unix)
 
 **On shared systems:**
 ```bash
@@ -87,8 +86,6 @@ If running Breadboard on a shared system:
 ls -la ~/Library/Application\ Support/breadboard/usage.db
 # Should show: -rw------- (600)
 
-# Set restrictive permissions on exports
-umask 077  # Before exporting
 breadboard export --output sensitive_data.csv
 ```
 
@@ -126,17 +123,17 @@ When exporting usage data to CSV:
 - ✅ Dangerous characters (=, +, -, @) are automatically prefixed with single quote
 - ✅ Prevents formula execution in Excel/Google Sheets
 
-**Path traversal protection:**
-- ✅ Export paths must be filenames only (no directories)
-- ✅ Must have .csv extension
-- ✅ Files created in current directory only
+**Path and file protection:**
+- ✅ Export paths must have a `.csv` extension
+- ✅ Existing directories are rejected
+- ✅ Unix exports are created with user-only permissions (0600)
 
 **Safe export examples:**
 ```bash
 breadboard export --output usage.csv          # ✅ Safe
 breadboard export --output my_usage_2024.csv  # ✅ Safe
 
-breadboard export --output ../etc/passwd.csv  # ❌ Rejected (path traversal)
+breadboard export --output reports/usage.csv  # ✅ Explicit user-selected path
 breadboard export --output usage.txt          # ❌ Rejected (wrong extension)
 ```
 
@@ -183,7 +180,7 @@ del %APPDATA%\breadboard\config.yaml
 
 3. **CSV Exports**
    - May contain sensitive data from prompts
-   - Created with default file permissions
+   - Created with user-only permissions on Unix (0600)
    - Review before sharing
 
 4. **No Built-in Encryption**
@@ -223,9 +220,9 @@ del %APPDATA%\breadboard\config.yaml
 ✅ **Parameterized SQL queries** - No SQL injection vulnerabilities
 ✅ **Command validation** - Shell injection protected
 ✅ **Input sanitization** - CSV formula injection prevented
-✅ **Path validation** - Directory traversal prevented
+✅ **Path validation** - CSV destinations and directory targets are validated
 ✅ **No hardcoded secrets** - All credentials via environment
-✅ **Restrictive file permissions** - Database user-only (0600)
+✅ **Restrictive file permissions** - Config, database, and exports are user-only on Unix
 
 ## Questions?
 
