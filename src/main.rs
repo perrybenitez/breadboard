@@ -1113,6 +1113,12 @@ fn validate_export_path(path: &str) -> Result<std::path::PathBuf> {
 
     let path = Path::new(path);
 
+    if let Ok(metadata) = std::fs::symlink_metadata(path) {
+        if metadata.file_type().is_symlink() {
+            return Err(anyhow::anyhow!("Export path must not be a symbolic link"));
+        }
+    }
+
     if path.exists() && path.is_dir() {
         return Err(anyhow::anyhow!(
             "Export path points to a directory; choose a .csv file instead"
@@ -1153,12 +1159,25 @@ fn sanitize_csv_field(field: &str) -> String {
 }
 
 fn export_usage(db: &Database, output_path: &str) -> Result<()> {
-    use std::fs::File;
+    use std::fs::OpenOptions;
     use std::io::Write;
+
+    #[cfg(unix)]
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
     let history = db.get_history(10000)?; // Get all history (up to 10k entries)
 
-    let mut file = File::create(output_path)?;
+    let mut options = OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut file = options.open(output_path)?;
+    #[cfg(unix)]
+    {
+        let mut permissions = file.metadata()?.permissions();
+        permissions.set_mode(0o600);
+        file.set_permissions(permissions)?;
+    }
 
     // Write CSV header
     writeln!(

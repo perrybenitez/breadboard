@@ -475,6 +475,13 @@ impl Database {
             .ok_or_else(|| anyhow::anyhow!("Could not find local data directory"))?;
         path.push("breadboard");
         std::fs::create_dir_all(&path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = std::fs::metadata(&path)?.permissions();
+            permissions.set_mode(0o700);
+            std::fs::set_permissions(&path, permissions)?;
+        }
         path.push("usage.db");
         Ok(path)
     }
