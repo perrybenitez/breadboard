@@ -379,7 +379,7 @@ fn main() -> Result<()> {
                 std::process::exit(1);
             }
 
-            if let Some(_) = Tier::from_string(&tier) {
+            if Tier::from_string(&tier).is_some() {
                 db.set_tier(&service, &tier)?;
                 println!(
                     "{} Tier set: {} = {}",
@@ -570,7 +570,7 @@ fn route_and_execute(
     let session = session_name
         .map(|name| {
             sessions::open(
-                &db,
+                db,
                 service.name(),
                 service.model(),
                 name,
@@ -642,7 +642,7 @@ fn route_and_execute(
     }
 
     let session_agent_id = if let Some(session) = &session {
-        let agent_id = bridge::register_session_agent(&db, session, task_type.config_key())?;
+        let agent_id = bridge::register_session_agent(db, session, task_type.config_key())?;
         println!("{} Agent: {}", ">>".cyan(), agent_id.cyan());
         Some(agent_id)
     } else {
@@ -650,7 +650,7 @@ fn route_and_execute(
     };
 
     let (execution_prompt, claimed_bridge_messages) = if let Some(agent_id) = &session_agent_id {
-        let (prompt, messages) = bridge::inject_pending_messages(&db, agent_id, prompt)?;
+        let (prompt, messages) = bridge::inject_pending_messages(db, agent_id, prompt)?;
         if !messages.is_empty() {
             println!(
                 "{} Injected {} bridge message(s) into the session prompt",
@@ -720,7 +720,7 @@ fn route_and_execute(
         // Record usage before acknowledging bridge work so a local database
         // failure cannot silently lose accounting for a completed provider
         // turn. Delivery remains at-least-once if acknowledgment fails.
-        bridge::acknowledge_messages(&db, agent_id, &claimed_bridge_messages)?;
+        bridge::acknowledge_messages(db, agent_id, &claimed_bridge_messages)?;
     }
     if let Some(session) = &session {
         db.touch_session(&session.key)?;
@@ -1050,7 +1050,7 @@ fn show_costs(db: &Database, days: Option<i32>) -> Result<()> {
     println!("{}", "Per-Service Costs".bold());
     for summary in &cost_summaries {
         let pct = if total_cost > 0.0 {
-            (summary.total_cost / total_cost * 100.0)
+            summary.total_cost / total_cost * 100.0
         } else {
             0.0
         };
@@ -1100,7 +1100,7 @@ fn show_costs(db: &Database, days: Option<i32>) -> Result<()> {
 /// Validate export path to prevent directory traversal attacks
 /// Ensures the path is a simple filename with .csv extension in current directory
 fn validate_export_path(path: &str) -> Result<std::path::PathBuf> {
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
 
     let path = Path::new(path);
 
@@ -1716,7 +1716,7 @@ fn run_doctor(config: &Config, db: &Database) -> Result<()> {
                     usage,
                     budget,
                     if budget > 0 {
-                        (usage as f64 / budget as f64 * 100.0)
+                        usage as f64 / budget as f64 * 100.0
                     } else {
                         0.0
                     }
@@ -1724,21 +1724,19 @@ fn run_doctor(config: &Config, db: &Database) -> Result<()> {
             } else {
                 println!("     Run: breadboard set-tier {} <tier>", name);
             }
+        } else if tier.is_some() {
+            issues.push(format!(
+                "{} is configured but command '{}' not found",
+                name, cmd
+            ));
+            println!(
+                "  {} {} - command '{}' not found",
+                "[ERROR]".red(),
+                name.cyan(),
+                cmd
+            );
         } else {
-            if tier.is_some() {
-                issues.push(format!(
-                    "{} is configured but command '{}' not found",
-                    name, cmd
-                ));
-                println!(
-                    "  {} {} - command '{}' not found",
-                    "[ERROR]".red(),
-                    name.cyan(),
-                    cmd
-                );
-            } else {
-                println!("  {} {} - not installed", "[INFO]".dimmed(), name.dimmed());
-            }
+            println!("  {} {} - not installed", "[INFO]".dimmed(), name.dimmed());
         }
     }
 

@@ -1,23 +1,9 @@
 // API Sync - Query actual usage from service APIs
 
 use crate::db::Database;
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::Deserialize;
 use std::env;
-
-#[derive(Debug, Deserialize)]
-struct ClaudeUsageResponse {
-    #[serde(default)]
-    usage: Option<ClaudeUsage>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ClaudeUsage {
-    #[serde(default)]
-    input_tokens: Option<i64>,
-    #[serde(default)]
-    output_tokens: Option<i64>,
-}
 
 #[derive(Debug, Deserialize)]
 struct OpenAIUsageResponse {

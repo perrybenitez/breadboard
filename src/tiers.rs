@@ -1,13 +1,6 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ServiceTier {
-    pub name: String,
-    pub tier: Tier,
-    pub limits: Vec<Limit>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Tier {
     // Claude
     ClaudeFree,

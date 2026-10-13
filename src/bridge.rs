@@ -439,7 +439,7 @@ fn call_mcp_tool(db: &Database, params: Option<&Value>) -> Result<Value> {
                 .list_agents()?
                 .into_iter()
                 .filter(|agent| {
-                    capability.as_ref().map_or(true, |capability| {
+                    capability.as_ref().is_none_or(|capability| {
                         agent.capabilities.iter().any(|item| item == capability)
                     })
                 })

@@ -205,7 +205,7 @@ fn sha256(input: &[u8]) -> [u8; 32] {
     ];
 
     let bit_length = (input.len() as u64) * 8;
-    let padded_len = ((input.len() + 9) + 63) / 64 * 64;
+    let padded_len = (input.len() + 9).div_ceil(64) * 64;
     let mut padded = vec![0u8; padded_len];
     padded[..input.len()].copy_from_slice(input);
     padded[input.len()] = 0x80;

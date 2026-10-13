@@ -1,9 +1,12 @@
-/// Output compression utilities for reducing database storage
-/// while preserving key information for history tracking
+//! Output compression utilities for reducing database storage while preserving
+//! key information for history tracking.
 
+#[cfg(test)]
 const MAX_COMPRESSED_LENGTH: usize = 2000;
+#[cfg(test)]
 const CONTEXT_LINES: usize = 10;
 
+#[cfg(test)]
 pub struct CompressionResult {
     pub compressed: String,
     pub original_size: usize,
@@ -18,6 +21,7 @@ pub struct CompressionResult {
 /// 2. If large, keep first N lines + last N lines + summary
 /// 3. Remove excessive whitespace and repetition
 /// 4. Preserve error messages and important markers
+#[cfg(test)]
 pub fn compress_output(output: &str) -> CompressionResult {
     let original_size = output.len();
 
@@ -92,6 +96,7 @@ pub fn compress_prompt(prompt: &str) -> String {
 }
 
 /// Deduplicate consecutive identical lines (common in logs)
+#[cfg(test)]
 pub fn deduplicate_lines(text: &str) -> String {
     let lines: Vec<&str> = text.lines().collect();
     let mut result = Vec::new();
