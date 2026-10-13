@@ -575,6 +575,9 @@ impl Database {
     }
 
     pub fn set_budget(&self, service: &str, tokens: i64) -> Result<()> {
+        if tokens <= 0 {
+            bail!("budget must be greater than zero");
+        }
         self.conn.execute(
             "INSERT OR REPLACE INTO budgets (service, tokens) VALUES (?1, ?2)",
             params![service, tokens],
