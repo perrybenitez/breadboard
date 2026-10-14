@@ -65,7 +65,7 @@ pub fn run_dashboard(db: &Database) -> Result<()> {
                 let error_text = format!("Error: {}", e);
                 let paragraph = Paragraph::new(error_text)
                     .block(Block::default().borders(Borders::ALL).title("Error"));
-                f.render_widget(paragraph, f.size());
+                f.render_widget(paragraph, f.area());
             }
         })?;
 
@@ -102,7 +102,7 @@ fn render_dashboard(f: &mut Frame, db: &Database) -> Result<()> {
             Constraint::Min(5),     // History
             Constraint::Length(3),  // Help
         ])
-        .split(f.size());
+        .split(f.area());
 
     // Title
     render_title(f, chunks[0]);
