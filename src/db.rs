@@ -664,7 +664,7 @@ impl Database {
         )?;
 
         let entries = stmt
-            .query_map(params![limit], |row| {
+            .query_map(params![limit as i64], |row| {
                 let timestamp: String = row.get(0)?;
                 let service: String = row.get(1)?;
                 let prompt: String = row.get(2)?;
